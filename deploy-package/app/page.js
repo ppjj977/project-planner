@@ -961,17 +961,11 @@ function GanttPlanner({
                         <head>
                           <title>Project Plan</title>
                           <style>
-                            body { font-family: system-ui, sans-serif; padding: 20px; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
-                            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
-                            table { width: 100%; border-collapse: collapse; font-size: 11px; }
-                            th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
-                            th { background-color: #374151 !important; color: white !important; }
-                            div[style*="background"] { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
-                            @page { margin: 0.5in; }
+                            body { font-family: system-ui, sans-serif; padding: 15px; }
+                            table { width: 100%; border-collapse: collapse; }
+                            th, td { border: 1px solid #ccc; }
                             @media print { 
-                              html, body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
-                              * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
-                              th { background-color: #374151 !important; color: white !important; }
+                              body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
                             }
                           </style>
                         </head>
@@ -989,80 +983,83 @@ function GanttPlanner({
               <p className="text-xs text-amber-600 mt-2">💡 Tip: In the print dialog, enable "Background graphics" (under "More settings") to show task colors</p>
             </div>
             
-            <div id="print-area" className="bg-white">
-              <h1 className="text-xl font-bold mb-4 text-center">Project Plan</h1>
-              <p className="text-sm text-slate-600 mb-4 text-center">Start: {startDate.toLocaleDateString()} | {numWeeks} weeks</p>
+            <div id="print-area" style={{backgroundColor: 'white'}}>
+              <h1 style={{fontSize: '20px', fontWeight: 'bold', marginBottom: '16px', textAlign: 'center'}}>Project Plan</h1>
+              <p style={{fontSize: '12px', color: '#64748b', marginBottom: '16px', textAlign: 'center'}}>Start: {startDate.toLocaleDateString()} | {numWeeks} weeks</p>
               
-              <table className="w-full border-collapse text-xs">
+              {/* Simple Gantt - each row shows tasks with colored backgrounds */}
+              <table style={{width: '100%', borderCollapse: 'collapse', fontSize: '11px', tableLayout: 'fixed'}}>
                 <thead>
                   <tr>
-                    <th className="border border-slate-300 bg-slate-700 text-white p-2 w-32">Category</th>
+                    <th style={{width: '100px', backgroundColor: '#374151', color: 'white', border: '1px solid #ccc', padding: '6px'}}>Category</th>
                     {weeks.map((date, idx) => (
-                      <th key={idx} className="border border-slate-300 bg-slate-700 text-white p-1 text-center" style={{minWidth: '50px'}}>{formatWeekHeader(date)}</th>
+                      <th key={idx} style={{backgroundColor: '#374151', color: 'white', border: '1px solid #ccc', padding: '4px', textAlign: 'center', fontSize: '10px'}}>{formatWeekHeader(date)}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {categories.map(category => (
-                    <tr key={category.id}>
-                      <td className="border border-slate-300 p-2 font-medium bg-slate-50">{category.name}</td>
-                      {weeks.map((_, weekIdx) => {
-                        const weekStartDay = weekIdx * DAYS_PER_WEEK
-                        const weekEndDay = weekStartDay + DAYS_PER_WEEK
-                        const tasksInCell = tasks.filter(t => t.categoryId === category.id && t.startDay !== null && t.startDay !== undefined && t.startDay >= weekStartDay && t.startDay < weekEndDay)
-                        const continuingTasks = tasks.filter(t => t.categoryId === category.id && t.startDay !== null && t.startDay !== undefined && t.startDay < weekStartDay && t.startDay + t.durationDays > weekStartDay)
-                        return (
-                          <td key={weekIdx} className="border border-slate-300 p-1 relative" style={{height: '50px', verticalAlign: 'middle'}}>
-                            {tasksInCell.map(task => {
-                              const dayOffsetInWeek = task.startDay - weekStartDay
-                              const durationWeeks = task.durationDays / DAYS_PER_WEEK
-                              return (
-                                <div key={task.id} style={{ 
-                                  backgroundColor: task.color, 
-                                  border: `2px solid ${task.color}`,
-                                  color: '#ffffff', 
-                                  position: 'absolute', 
-                                  left: `calc(${dayOffsetInWeek * 20}% + 2px)`, 
-                                  top: '4px', 
-                                  bottom: '4px', 
-                                  width: `calc(${durationWeeks * 100}% - 4px)`, 
-                                  zIndex: 1, 
-                                  display: 'flex', 
-                                  alignItems: 'center', 
-                                  justifyContent: 'center', 
-                                  textAlign: 'center', 
-                                  overflow: 'visible', 
-                                  whiteSpace: 'nowrap', 
-                                  fontSize: '9px', 
+                  {categories.map(category => {
+                    const categoryTasks = tasks.filter(t => t.categoryId === category.id && t.startDay !== null && t.startDay !== undefined)
+                    return (
+                      <tr key={category.id}>
+                        <td style={{border: '1px solid #ccc', padding: '6px', fontWeight: '500', backgroundColor: '#f8fafc'}}>{category.name}</td>
+                        {weeks.map((_, weekIdx) => {
+                          const weekStartDay = weekIdx * DAYS_PER_WEEK
+                          const weekEndDay = weekStartDay + DAYS_PER_WEEK
+                          // Tasks that START in this week
+                          const startsHere = categoryTasks.filter(t => t.startDay >= weekStartDay && t.startDay < weekEndDay)
+                          // Tasks that CONTINUE through this week (started earlier, still running)
+                          const continuesHere = categoryTasks.filter(t => t.startDay < weekStartDay && (t.startDay + t.durationDays) > weekStartDay)
+                          
+                          return (
+                            <td key={weekIdx} style={{border: '1px solid #ccc', padding: '2px', verticalAlign: 'top', height: '40px'}}>
+                              {startsHere.map(task => (
+                                <div key={task.id} style={{
+                                  backgroundColor: task.color,
+                                  color: 'white',
+                                  padding: '2px 4px',
                                   borderRadius: '3px',
-                                  WebkitPrintColorAdjust: 'exact',
-                                  printColorAdjust: 'exact',
-                                  colorAdjust: 'exact'
+                                  fontSize: '8px',
+                                  marginBottom: '2px',
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis'
                                 }}>
-                                  <span style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>{task.name}</span>
-                                  {task.isMilestone && <span style={{marginLeft: '2px'}}>⭐</span>}
+                                  {task.isMilestone && '⭐ '}{task.name}
                                 </div>
-                              )
-                            })}
-                            {continuingTasks.length > 0 && tasksInCell.length === 0 && <div className="w-full h-6 bg-slate-200 rounded opacity-30" />}
-                          </td>
-                        )
-                      })}
-                    </tr>
-                  ))}
+                              ))}
+                              {continuesHere.map(task => (
+                                <div key={task.id} style={{
+                                  backgroundColor: task.color,
+                                  opacity: 0.5,
+                                  color: 'white',
+                                  padding: '2px 4px',
+                                  borderRadius: '3px',
+                                  fontSize: '8px',
+                                  marginBottom: '2px'
+                                }}>
+                                  ↳
+                                </div>
+                              ))}
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
 
-              <div className="mt-6">
-                <h3 className="font-bold mb-2">Task List</h3>
-                <table className="w-full border-collapse text-xs">
+              <div style={{marginTop: '24px'}}>
+                <h3 style={{fontWeight: 'bold', marginBottom: '8px'}}>Task List</h3>
+                <table style={{width: '100%', borderCollapse: 'collapse', fontSize: '11px'}}>
                   <thead>
                     <tr>
-                      <th className="border border-slate-300 bg-slate-100 p-2 text-left">Task</th>
-                      <th className="border border-slate-300 bg-slate-100 p-2 text-left">Category</th>
-                      <th className="border border-slate-300 bg-slate-100 p-2 text-left">Assignee</th>
-                      <th className="border border-slate-300 bg-slate-100 p-2 text-left">Start</th>
-                      <th className="border border-slate-300 bg-slate-100 p-2 text-left">Duration</th>
+                      <th style={{border: '1px solid #ccc', backgroundColor: '#f1f5f9', padding: '8px', textAlign: 'left'}}>Task</th>
+                      <th style={{border: '1px solid #ccc', backgroundColor: '#f1f5f9', padding: '8px', textAlign: 'left'}}>Category</th>
+                      <th style={{border: '1px solid #ccc', backgroundColor: '#f1f5f9', padding: '8px', textAlign: 'left'}}>Assignee</th>
+                      <th style={{border: '1px solid #ccc', backgroundColor: '#f1f5f9', padding: '8px', textAlign: 'left'}}>Start</th>
+                      <th style={{border: '1px solid #ccc', backgroundColor: '#f1f5f9', padding: '8px', textAlign: 'left'}}>Duration</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1074,11 +1071,11 @@ function GanttPlanner({
                       taskStartDate.setDate(taskStartDate.getDate() + dayInWeek)
                       return (
                         <tr key={task.id}>
-                          <td className="border border-slate-300 p-2">{task.isMilestone && '⭐ '}{task.name}</td>
-                          <td className="border border-slate-300 p-2">{category?.name}</td>
-                          <td className="border border-slate-300 p-2"><span className="inline-block w-2 h-2 rounded mr-1" style={{backgroundColor: task.color}} />{task.assignee}</td>
-                          <td className="border border-slate-300 p-2">{taskStartDate?.toLocaleDateString()}</td>
-                          <td className="border border-slate-300 p-2">{task.durationDays} day{task.durationDays > 1 ? 's' : ''}</td>
+                          <td style={{border: '1px solid #ccc', padding: '6px'}}>{task.isMilestone && '⭐ '}{task.name}</td>
+                          <td style={{border: '1px solid #ccc', padding: '6px'}}>{category?.name}</td>
+                          <td style={{border: '1px solid #ccc', padding: '6px'}}>{task.assignee}</td>
+                          <td style={{border: '1px solid #ccc', padding: '6px'}}>{taskStartDate?.toLocaleDateString()}</td>
+                          <td style={{border: '1px solid #ccc', padding: '6px'}}>{task.durationDays} day{task.durationDays > 1 ? 's' : ''}</td>
                         </tr>
                       )
                     })}
@@ -1086,18 +1083,18 @@ function GanttPlanner({
                 </table>
               </div>
 
-              <div className="mt-4 flex flex-wrap gap-4">
-                <span className="text-xs font-medium">Legend:</span>
+              <div style={{marginTop: '16px', display: 'flex', flexWrap: 'wrap', gap: '16px', fontSize: '11px'}}>
+                <span style={{fontWeight: '500'}}>Legend:</span>
                 {assignees.filter(a => tasks.some(t => t.assignee === a.name && t.startDay !== null && t.startDay !== undefined)).map(a => (
-                  <div key={a.name} className="flex items-center gap-1">
-                    <div className="w-3 h-3 rounded" style={{backgroundColor: a.color}} />
-                    <span className="text-xs">{a.name}</span>
+                  <div key={a.name} style={{display: 'flex', alignItems: 'center', gap: '4px'}}>
+                    <div style={{width: '12px', height: '12px', borderRadius: '2px', backgroundColor: a.color}} />
+                    <span>{a.name}</span>
                   </div>
                 ))}
                 {tasks.some(t => t.isMilestone) && (
-                  <div className="flex items-center gap-1">
+                  <div style={{display: 'flex', alignItems: 'center', gap: '4px'}}>
                     <span>⭐</span>
-                    <span className="text-xs">Milestone</span>
+                    <span>Milestone</span>
                   </div>
                 )}
               </div>
