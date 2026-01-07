@@ -229,7 +229,7 @@ function GanttPlanner({
   const [editingCategory, setEditingCategory] = useState(null)
   const [showTaskModal, setShowTaskModal] = useState(false)
   const [editingTaskId, setEditingTaskId] = useState(null)
-  const [taskForm, setTaskForm] = useState({ name: '', categoryId: '', startDay: 0, durationDays: 5, assignee: '' })
+  const [taskForm, setTaskForm] = useState({ name: '', categoryId: '', startDay: 0, durationDays: 5, assignee: '', isMilestone: false })
   const [gridDimensions, setGridDimensions] = useState({ width: 0, left: 0 })
   const [showAssigneeModal, setShowAssigneeModal] = useState(false)
   const [newAssigneeName, setNewAssigneeName] = useState('')
@@ -387,7 +387,11 @@ function GanttPlanner({
   }
 
   const addTask = () => {
-    if (!taskForm.name || !taskForm.categoryId || !taskForm.assignee) return
+    // Validation with feedback
+    if (!taskForm.name) { alert('Please enter a task name'); return }
+    if (!taskForm.categoryId) { alert('Please select a category (add one first if none exist)'); return }
+    if (!taskForm.assignee) { alert('Please select an assignee (add one first if none exist)'); return }
+    
     const assigneeData = assignees.find(a => a.name === taskForm.assignee)
     const isUnscheduled = taskForm.startDay === null || taskForm.startDay === undefined || taskForm.startDay === 'unscheduled'
     
@@ -399,7 +403,8 @@ function GanttPlanner({
         startDay: isUnscheduled ? null : parseInt(taskForm.startDay),
         durationDays: parseInt(taskForm.durationDays),
         assignee: taskForm.assignee,
-        color: assigneeData?.color || '#666'
+        color: assigneeData?.color || '#666',
+        isMilestone: taskForm.isMilestone
       } : t))
     } else {
       setTasks([...tasks, {
@@ -409,12 +414,13 @@ function GanttPlanner({
         startDay: isUnscheduled ? null : parseInt(taskForm.startDay),
         durationDays: parseInt(taskForm.durationDays),
         assignee: taskForm.assignee,
-        color: assigneeData?.color || '#666'
+        color: assigneeData?.color || '#666',
+        isMilestone: taskForm.isMilestone
       }])
     }
     setShowTaskModal(false)
     setEditingTaskId(null)
-    setTaskForm({ name: '', categoryId: '', startDay: 0, durationDays: 5, assignee: '' })
+    setTaskForm({ name: '', categoryId: '', startDay: 0, durationDays: 5, assignee: '', isMilestone: false })
   }
 
   const deleteTask = (taskId) => {
@@ -529,6 +535,10 @@ function GanttPlanner({
             <div className="w-6 h-0.5 bg-red-500" />
             <span className="text-xs text-slate-600">Dependency</span>
           </div>
+          <div className="flex items-center gap-1 ml-4">
+            <span className="text-yellow-400">⭐</span>
+            <span className="text-xs text-slate-600">Milestone</span>
+          </div>
         </div>
         {creatingDependency && (
           <div className="mt-2 p-2 bg-amber-100 rounded text-xs text-amber-800">⚡ Click another task to create dependency, or click empty area to cancel</div>
@@ -549,7 +559,7 @@ function GanttPlanner({
                 className={`px-3 py-2 rounded text-white text-xs cursor-move shadow ${selectedTask === task.id ? 'ring-2 ring-blue-400' : ''}`}
                 style={{ backgroundColor: task.color }}
               >
-                {task.name}
+                {task.isMilestone && <span className="mr-1">⭐</span>}{task.name}
               </div>
             ))}
           </div>
@@ -676,6 +686,9 @@ function GanttPlanner({
                           <div className="w-1 h-8 bg-white bg-opacity-40 rounded" />
                         </div>
                         <div className="absolute -right-3 top-1/2 transform -translate-y-1/2 pointer-events-none" style={{ width: 0, height: 0, borderTop: '16px solid transparent', borderBottom: '16px solid transparent', borderLeft: `14px solid ${task.color}` }} />
+                        {task.isMilestone && (
+                          <div className="absolute -right-6 top-1/2 transform -translate-y-1/2 pointer-events-none text-yellow-400 text-lg" style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.3))' }}>⭐</div>
+                        )}
                       </div>
                     )
                   })}
@@ -708,7 +721,7 @@ function GanttPlanner({
               {task?.startDay !== null && (
                 <button onClick={() => { setCreatingDependency(selectedTask); setSelectedTask(null) }} className="bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700 text-xs font-medium">🔗 Add Link</button>
               )}
-              <button onClick={() => { const t = tasks.find(x => x.id === selectedTask); if (t) { setTaskForm({ name: t.name, categoryId: t.categoryId, startDay: t.startDay ?? 'unscheduled', durationDays: t.durationDays, assignee: t.assignee }); setEditingTaskId(selectedTask); setShowTaskModal(true); setSelectedTask(null) } }} className="bg-amber-600 text-white px-3 py-2 rounded hover:bg-amber-700 text-xs font-medium">✏️ Edit</button>
+              <button onClick={() => { const t = tasks.find(x => x.id === selectedTask); if (t) { setTaskForm({ name: t.name, categoryId: t.categoryId, startDay: t.startDay ?? 'unscheduled', durationDays: t.durationDays, assignee: t.assignee, isMilestone: t.isMilestone || false }); setEditingTaskId(selectedTask); setShowTaskModal(true); setSelectedTask(null) } }} className="bg-amber-600 text-white px-3 py-2 rounded hover:bg-amber-700 text-xs font-medium">✏️ Edit</button>
               {task?.startDay !== null && (
                 <button onClick={() => { setTasks(prev => prev.map(t => t.id === selectedTask ? { ...t, startDay: null } : t)); setSelectedTask(null) }} className="bg-slate-600 text-white px-3 py-2 rounded hover:bg-slate-700 text-xs font-medium">📤 Unschedule</button>
               )}
@@ -727,14 +740,19 @@ function GanttPlanner({
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-4 w-full max-w-sm">
             <h2 className="text-lg font-bold mb-3">{editingTaskId ? 'Edit Task' : 'Add New Task'}</h2>
+            {(categories.length === 0 || assignees.length === 0) && (
+              <div className="mb-3 p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+                ⚠️ {categories.length === 0 && 'Add a category first. '}{assignees.length === 0 && 'Add an assignee first.'}
+              </div>
+            )}
             <div className="space-y-3">
-              <input type="text" value={taskForm.name} onChange={(e) => setTaskForm({ ...taskForm, name: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" placeholder="Task name" />
-              <select value={taskForm.categoryId} onChange={(e) => setTaskForm({ ...taskForm, categoryId: e.target.value })} className="w-full border rounded px-3 py-2 text-sm">
-                <option value="">Select category</option>
+              <input type="text" value={taskForm.name} onChange={(e) => setTaskForm({ ...taskForm, name: e.target.value })} className="w-full border rounded px-3 py-2 text-sm" placeholder="Task name *" />
+              <select value={taskForm.categoryId} onChange={(e) => setTaskForm({ ...taskForm, categoryId: e.target.value })} className={`w-full border rounded px-3 py-2 text-sm ${categories.length === 0 ? 'border-amber-300 bg-amber-50' : ''}`}>
+                <option value="">{categories.length === 0 ? '⚠️ No categories - add one first' : 'Select category *'}</option>
                 {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
-              <select value={taskForm.assignee} onChange={(e) => setTaskForm({ ...taskForm, assignee: e.target.value })} className="w-full border rounded px-3 py-2 text-sm">
-                <option value="">Select assignee</option>
+              <select value={taskForm.assignee} onChange={(e) => setTaskForm({ ...taskForm, assignee: e.target.value })} className={`w-full border rounded px-3 py-2 text-sm ${assignees.length === 0 ? 'border-amber-300 bg-amber-50' : ''}`}>
+                <option value="">{assignees.length === 0 ? '⚠️ No assignees - add one first' : 'Select assignee *'}</option>
                 {assignees.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
               </select>
               <div className="flex gap-2">
@@ -744,6 +762,10 @@ function GanttPlanner({
                 </select>
                 <input type="number" value={taskForm.durationDays} onChange={(e) => setTaskForm({ ...taskForm, durationDays: parseInt(e.target.value) || 1 })} className="w-20 border rounded px-2 py-2 text-sm" min="1" placeholder="Days" />
               </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={taskForm.isMilestone} onChange={(e) => setTaskForm({ ...taskForm, isMilestone: e.target.checked })} className="w-4 h-4 rounded border-slate-300" />
+                <span className="text-sm">⭐ Mark as Milestone</span>
+              </label>
             </div>
             <div className="flex justify-end gap-2 mt-4">
               <button onClick={() => { setShowTaskModal(false); setEditingTaskId(null) }} className="px-4 py-2 border rounded hover:bg-slate-100 text-sm">Cancel</button>
@@ -962,7 +984,7 @@ function GanttPlanner({
                       taskStartDate.setDate(taskStartDate.getDate() + dayInWeek)
                       return (
                         <tr key={task.id}>
-                          <td className="border border-slate-300 p-2">{task.name}</td>
+                          <td className="border border-slate-300 p-2">{task.isMilestone && '⭐ '}{task.name}</td>
                           <td className="border border-slate-300 p-2">{category?.name}</td>
                           <td className="border border-slate-300 p-2"><span className="inline-block w-2 h-2 rounded mr-1" style={{backgroundColor: task.color}} />{task.assignee}</td>
                           <td className="border border-slate-300 p-2">{taskStartDate?.toLocaleDateString()}</td>
@@ -982,6 +1004,12 @@ function GanttPlanner({
                     <span className="text-xs">{a.name}</span>
                   </div>
                 ))}
+                {tasks.some(t => t.isMilestone) && (
+                  <div className="flex items-center gap-1">
+                    <span>⭐</span>
+                    <span className="text-xs">Milestone</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -998,6 +1026,7 @@ function GanttPlanner({
           <div>• <strong>Red arrows</strong> show dependencies (click to delete)</div>
           <div>• <strong>Drag categories</strong> using the handle to reorder</div>
           <div>• <strong>Unscheduled tasks</strong> can be dragged onto timeline</div>
+          <div>• <strong>⭐ Milestones</strong> mark key deliverables (set when adding/editing task)</div>
         </div>
       </div>
     </div>
