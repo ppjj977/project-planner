@@ -961,11 +961,13 @@ function GanttPlanner({
                         <head>
                           <title>Project Plan</title>
                           <style>
-                            body { font-family: system-ui, sans-serif; padding: 15px; }
+                            body { font-family: system-ui, sans-serif; padding: 15px; margin: 0; }
+                            * { box-sizing: border-box; }
                             table { width: 100%; border-collapse: collapse; }
                             th, td { border: 1px solid #ccc; }
                             @media print { 
                               body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+                              * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
                             }
                           </style>
                         </head>
@@ -987,72 +989,82 @@ function GanttPlanner({
               <h1 style={{fontSize: '20px', fontWeight: 'bold', marginBottom: '16px', textAlign: 'center'}}>Project Plan</h1>
               <p style={{fontSize: '12px', color: '#64748b', marginBottom: '16px', textAlign: 'center'}}>Start: {startDate.toLocaleDateString()} | {numWeeks} weeks</p>
               
-              {/* Gantt Chart - shows task bars spanning across weeks */}
-              <table style={{width: '100%', borderCollapse: 'collapse', fontSize: '11px', tableLayout: 'fixed'}}>
-                <thead>
-                  <tr>
-                    <th style={{width: '90px', backgroundColor: '#374151', color: 'white', border: '1px solid #ccc', padding: '6px'}}>Category</th>
+              {/* Gantt Chart with continuous task bars */}
+              <div style={{border: '1px solid #ccc'}}>
+                {/* Header row */}
+                <div style={{display: 'flex', backgroundColor: '#374151'}}>
+                  <div style={{width: '90px', flexShrink: 0, padding: '6px', color: 'white', fontWeight: 'bold', fontSize: '10px', borderRight: '1px solid #ccc'}}>Category</div>
+                  <div style={{flex: 1, display: 'flex'}}>
                     {weeks.map((date, idx) => (
-                      <th key={idx} style={{backgroundColor: '#374151', color: 'white', border: '1px solid #ccc', padding: '4px', textAlign: 'center', fontSize: '9px'}}>{formatWeekHeader(date)}</th>
+                      <div key={idx} style={{flex: 1, padding: '4px', color: 'white', fontSize: '9px', textAlign: 'center', borderRight: idx < weeks.length - 1 ? '1px solid #4b5563' : 'none'}}>{formatWeekHeader(date)}</div>
                     ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {categories.map(category => {
-                    const categoryTasks = tasks.filter(t => t.categoryId === category.id && t.startDay !== null && t.startDay !== undefined)
-                    return (
-                      <tr key={category.id}>
-                        <td style={{border: '1px solid #ccc', padding: '6px', fontWeight: '500', backgroundColor: '#f8fafc', fontSize: '10px'}}>{category.name}</td>
-                        {weeks.map((_, weekIdx) => {
-                          const weekStartDay = weekIdx * DAYS_PER_WEEK
-                          const weekEndDay = weekStartDay + DAYS_PER_WEEK
+                  </div>
+                </div>
+                
+                {/* Category rows with task bars */}
+                {categories.map((category, catIdx) => {
+                  const categoryTasks = tasks.filter(t => t.categoryId === category.id && t.startDay !== null && t.startDay !== undefined)
+                  const rowHeight = Math.max(50, categoryTasks.length * 28 + 8)
+                  
+                  return (
+                    <div key={category.id} style={{display: 'flex', borderTop: '1px solid #ccc', minHeight: `${rowHeight}px`}}>
+                      <div style={{width: '90px', flexShrink: 0, padding: '6px', fontWeight: '500', fontSize: '10px', backgroundColor: '#f8fafc', borderRight: '1px solid #ccc', display: 'flex', alignItems: 'center'}}>{category.name}</div>
+                      <div style={{flex: 1, position: 'relative', display: 'flex'}}>
+                        {/* Grid lines */}
+                        {weeks.map((_, idx) => (
+                          <div key={idx} style={{flex: 1, borderRight: idx < weeks.length - 1 ? '1px solid #e5e7eb' : 'none'}} />
+                        ))}
+                        
+                        {/* Task bars - positioned absolutely */}
+                        {categoryTasks.map((task, taskIdx) => {
+                          const startPercent = (task.startDay / totalDays) * 100
+                          const widthPercent = (task.durationDays / totalDays) * 100
                           
-                          // Find tasks that are active during this week
-                          const activeTasks = categoryTasks.filter(t => {
-                            const taskEnd = t.startDay + t.durationDays
-                            return t.startDay < weekEndDay && taskEnd > weekStartDay
-                          })
+                          // Adaptive font size based on task name length and bar width
+                          const estimatedCharsPerLine = Math.max(5, Math.floor(widthPercent * 1.2))
+                          const nameLength = task.name.length + (task.isMilestone ? 2 : 0)
+                          let fontSize = '8px'
+                          if (nameLength <= estimatedCharsPerLine) fontSize = '9px'
+                          else if (nameLength <= estimatedCharsPerLine * 2) fontSize = '8px'
+                          else fontSize = '7px'
                           
                           return (
-                            <td key={weekIdx} style={{border: '1px solid #ccc', padding: '1px', verticalAlign: 'middle', height: '35px'}}>
-                              {activeTasks.map(task => {
-                                const isStart = task.startDay >= weekStartDay && task.startDay < weekEndDay
-                                const taskEnd = task.startDay + task.durationDays
-                                const isEnd = taskEnd > weekStartDay && taskEnd <= weekEndDay
-                                
-                                return (
-                                  <div key={task.id} style={{
-                                    backgroundColor: task.color,
-                                    color: 'white',
-                                    padding: '3px 4px',
-                                    fontSize: '7px',
-                                    marginBottom: '1px',
-                                    borderRadius: isStart ? '3px 0 0 3px' : isEnd ? '0 3px 3px 0' : '0',
-                                    marginLeft: isStart ? '2px' : '0',
-                                    marginRight: isEnd ? '2px' : '0',
-                                    whiteSpace: 'nowrap',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    minHeight: '16px',
-                                    display: 'flex',
-                                    alignItems: 'center'
-                                  }}>
-                                    {isStart ? (
-                                      <span>{task.isMilestone && '⭐'}{task.name}</span>
-                                    ) : (
-                                      <span style={{opacity: 0.7}}>→</span>
-                                    )}
-                                  </div>
-                                )
-                              })}
-                            </td>
+                            <div key={task.id} style={{
+                              position: 'absolute',
+                              left: `${startPercent}%`,
+                              width: `${Math.max(widthPercent, 2)}%`,
+                              top: `${3 + taskIdx * 26}px`,
+                              height: '24px',
+                              backgroundColor: task.color,
+                              border: `1px solid ${task.color}`,
+                              borderRadius: '3px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              overflow: 'hidden',
+                              padding: '2px 3px',
+                              boxSizing: 'border-box'
+                            }}>
+                              <span style={{
+                                color: 'white',
+                                fontSize: fontSize,
+                                textAlign: 'center',
+                                lineHeight: '1.1',
+                                overflow: 'hidden',
+                                maxHeight: '22px',
+                                wordBreak: 'break-word',
+                                hyphens: 'auto'
+                              }}>
+                                {task.isMilestone && '⭐'}{task.name}
+                              </span>
+                            </div>
                           )
                         })}
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
 
               <div style={{marginTop: '24px'}}>
                 <h3 style={{fontWeight: 'bold', marginBottom: '8px'}}>Task List</h3>
