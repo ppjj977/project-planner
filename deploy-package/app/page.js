@@ -238,6 +238,7 @@ function GanttPlanner({
   const [exportData, setExportData] = useState('')
   const [showImportModal, setShowImportModal] = useState(false)
   const [draggedCategory, setDraggedCategory] = useState(null)
+  const [showPrintPreview, setShowPrintPreview] = useState(false)
 
   const gridContainerRef = useRef(null)
 
@@ -509,6 +510,7 @@ function GanttPlanner({
           <button onClick={() => setShowAssigneeModal(true)} className="bg-purple-600 text-white px-3 py-1.5 rounded hover:bg-purple-700 text-xs font-medium">+ Assignee</button>
           <button onClick={() => setShowImportModal(true)} className="bg-slate-600 text-white px-3 py-1.5 rounded hover:bg-slate-700 text-xs font-medium">📁 Import</button>
           <button onClick={exportTaskList} className="bg-orange-600 text-white px-3 py-1.5 rounded hover:bg-orange-700 text-xs font-medium">📊 Export</button>
+          <button onClick={() => setShowPrintPreview(true)} className="bg-rose-600 text-white px-3 py-1.5 rounded hover:bg-rose-700 text-xs font-medium">🖨️ PDF</button>
         </div>
       </div>
 
@@ -851,6 +853,136 @@ function GanttPlanner({
             </div>
             <div className="flex justify-end mt-4">
               <button onClick={() => setShowImportModal(false)} className="px-4 py-2 border rounded hover:bg-slate-100 text-sm">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Print Preview Modal */}
+      {showPrintPreview && (
+        <div className="fixed inset-0 bg-white z-50 overflow-auto">
+          <div className="p-4">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-bold">Print Preview</h2>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    const printContent = document.getElementById('print-area')
+                    const iframe = document.createElement('iframe')
+                    iframe.style.position = 'absolute'
+                    iframe.style.top = '-10000px'
+                    iframe.style.left = '-10000px'
+                    document.body.appendChild(iframe)
+                    const doc = iframe.contentDocument || iframe.contentWindow.document
+                    doc.open()
+                    doc.write(`
+                      <html>
+                        <head>
+                          <title>Project Plan</title>
+                          <style>
+                            body { font-family: system-ui, sans-serif; padding: 20px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                            table { width: 100%; border-collapse: collapse; font-size: 11px; }
+                            th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+                            th { background: #374151 !important; color: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                            .task-bar { height: 24px; border-radius: 4px; color: white !important; font-size: 10px; display: flex; align-items: center; justify-content: center; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                            @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } th { background: #374151 !important; color: white !important; } .task-bar { color: white !important; } }
+                          </style>
+                        </head>
+                        <body>${printContent.innerHTML}</body>
+                      </html>
+                    `)
+                    doc.close()
+                    iframe.contentWindow.focus()
+                    setTimeout(() => { iframe.contentWindow.print(); setTimeout(() => { document.body.removeChild(iframe) }, 1000) }, 250)
+                  }}
+                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+                >🖨️ Print</button>
+                <button onClick={() => setShowPrintPreview(false)} className="px-4 py-2 border rounded hover:bg-slate-100 text-sm">Close</button>
+              </div>
+            </div>
+            
+            <div id="print-area" className="bg-white">
+              <h1 className="text-xl font-bold mb-4 text-center">Project Plan</h1>
+              <p className="text-sm text-slate-600 mb-4 text-center">Start: {startDate.toLocaleDateString()} | {numWeeks} weeks</p>
+              
+              <table className="w-full border-collapse text-xs">
+                <thead>
+                  <tr>
+                    <th className="border border-slate-300 bg-slate-700 text-white p-2 w-32">Category</th>
+                    {weeks.map((date, idx) => (
+                      <th key={idx} className="border border-slate-300 bg-slate-700 text-white p-1 text-center" style={{minWidth: '50px'}}>{formatWeekHeader(date)}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {categories.map(category => (
+                    <tr key={category.id}>
+                      <td className="border border-slate-300 p-2 font-medium bg-slate-50">{category.name}</td>
+                      {weeks.map((_, weekIdx) => {
+                        const weekStartDay = weekIdx * DAYS_PER_WEEK
+                        const weekEndDay = weekStartDay + DAYS_PER_WEEK
+                        const tasksInCell = tasks.filter(t => t.categoryId === category.id && t.startDay !== null && t.startDay !== undefined && t.startDay >= weekStartDay && t.startDay < weekEndDay)
+                        const continuingTasks = tasks.filter(t => t.categoryId === category.id && t.startDay !== null && t.startDay !== undefined && t.startDay < weekStartDay && t.startDay + t.durationDays > weekStartDay)
+                        return (
+                          <td key={weekIdx} className="border border-slate-300 p-1 relative" style={{height: '50px', verticalAlign: 'middle'}}>
+                            {tasksInCell.map(task => {
+                              const dayOffsetInWeek = task.startDay - weekStartDay
+                              const durationWeeks = task.durationDays / DAYS_PER_WEEK
+                              return (
+                                <div key={task.id} className="task-bar px-1" style={{ backgroundColor: task.color, color: '#ffffff', position: 'absolute', left: `calc(${dayOffsetInWeek * 20}% + 2px)`, top: '4px', bottom: '4px', width: `calc(${durationWeeks * 100}% - 4px)`, zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', fontSize: '9px', borderRadius: '3px', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>{task.name}</div>
+                              )
+                            })}
+                            {continuingTasks.length > 0 && tasksInCell.length === 0 && <div className="w-full h-6 bg-slate-200 rounded opacity-30" />}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              <div className="mt-6">
+                <h3 className="font-bold mb-2">Task List</h3>
+                <table className="w-full border-collapse text-xs">
+                  <thead>
+                    <tr>
+                      <th className="border border-slate-300 bg-slate-100 p-2 text-left">Task</th>
+                      <th className="border border-slate-300 bg-slate-100 p-2 text-left">Category</th>
+                      <th className="border border-slate-300 bg-slate-100 p-2 text-left">Assignee</th>
+                      <th className="border border-slate-300 bg-slate-100 p-2 text-left">Start</th>
+                      <th className="border border-slate-300 bg-slate-100 p-2 text-left">Duration</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tasks.filter(t => t.startDay !== null && t.startDay !== undefined).map(task => {
+                      const category = categories.find(c => c.id === task.categoryId)
+                      const weekIndex = Math.floor(task.startDay / DAYS_PER_WEEK)
+                      const dayInWeek = task.startDay % DAYS_PER_WEEK
+                      const taskStartDate = new Date(weeks[weekIndex] || weeks[0])
+                      taskStartDate.setDate(taskStartDate.getDate() + dayInWeek)
+                      return (
+                        <tr key={task.id}>
+                          <td className="border border-slate-300 p-2">{task.name}</td>
+                          <td className="border border-slate-300 p-2">{category?.name}</td>
+                          <td className="border border-slate-300 p-2"><span className="inline-block w-2 h-2 rounded mr-1" style={{backgroundColor: task.color}} />{task.assignee}</td>
+                          <td className="border border-slate-300 p-2">{taskStartDate?.toLocaleDateString()}</td>
+                          <td className="border border-slate-300 p-2">{task.durationDays} day{task.durationDays > 1 ? 's' : ''}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-4">
+                <span className="text-xs font-medium">Legend:</span>
+                {assignees.filter(a => tasks.some(t => t.assignee === a.name && t.startDay !== null && t.startDay !== undefined)).map(a => (
+                  <div key={a.name} className="flex items-center gap-1">
+                    <div className="w-3 h-3 rounded" style={{backgroundColor: a.color}} />
+                    <span className="text-xs">{a.name}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
