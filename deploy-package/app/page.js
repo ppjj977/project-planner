@@ -239,6 +239,7 @@ function GanttPlanner({
   const [showImportModal, setShowImportModal] = useState(false)
   const [draggedCategory, setDraggedCategory] = useState(null)
   const [showPrintPreview, setShowPrintPreview] = useState(false)
+  const [dragOverCategory, setDragOverCategory] = useState(null)
 
   const gridContainerRef = useRef(null)
 
@@ -662,12 +663,20 @@ function GanttPlanner({
                 {/* Grid Area */}
                 <div
                   ref={catIndex === 0 ? gridContainerRef : null}
-                  className="flex-1 relative"
+                  className={`flex-1 relative transition-colors ${dragOverCategory === category.id ? 'bg-blue-50' : ''}`}
                   style={{ minWidth: `${numWeeks * 80}px` }}
-                  onDragOver={(e) => { if (!draggedCategory) { e.preventDefault(); e.dataTransfer.dropEffect = 'move' } }}
+                  onDragOver={(e) => { 
+                    if (!draggedCategory) { 
+                      e.preventDefault(); 
+                      e.dataTransfer.dropEffect = 'move'
+                      setDragOverCategory(category.id)
+                    } 
+                  }}
+                  onDragLeave={() => setDragOverCategory(null)}
                   onDrop={(e) => {
                     if (draggedCategory) return
                     e.preventDefault()
+                    setDragOverCategory(null)
                     const taskId = e.dataTransfer.getData('taskId')
                     if (!taskId) return
                     const rect = e.currentTarget.getBoundingClientRect()
@@ -697,6 +706,8 @@ function GanttPlanner({
                     return (
                       <div
                         key={task.id}
+                        draggable
+                        onDragStart={(e) => { e.dataTransfer.setData('taskId', task.id); e.dataTransfer.effectAllowed = 'move' }}
                         className={`absolute top-3 bottom-3 rounded-l flex items-center text-white font-medium shadow-md transition-shadow ${isSelected ? 'ring-2 ring-blue-400 ring-offset-1' : ''} ${isCreatingFrom ? 'ring-2 ring-amber-400 ring-offset-1' : ''} ${isDragging ? 'opacity-80 shadow-lg' : ''}`}
                         style={{ ...style, backgroundColor: task.color, minWidth: '50px', touchAction: 'none', zIndex: isDragging ? 20 : 10 }}
                         onClick={(e) => handleTaskClick(e, task)}
@@ -950,12 +961,18 @@ function GanttPlanner({
                         <head>
                           <title>Project Plan</title>
                           <style>
-                            body { font-family: system-ui, sans-serif; padding: 20px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                            body { font-family: system-ui, sans-serif; padding: 20px; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+                            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
                             table { width: 100%; border-collapse: collapse; font-size: 11px; }
                             th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
-                            th { background: #374151 !important; color: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-                            .task-bar { height: 24px; border-radius: 4px; color: white !important; font-size: 10px; display: flex; align-items: center; justify-content: center; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-                            @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } th { background: #374151 !important; color: white !important; } .task-bar { color: white !important; } }
+                            th { background-color: #374151 !important; color: white !important; }
+                            div[style*="background"] { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+                            @page { margin: 0.5in; }
+                            @media print { 
+                              html, body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+                              * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+                              th { background-color: #374151 !important; color: white !important; }
+                            }
                           </style>
                         </head>
                         <body>${printContent.innerHTML}</body>
@@ -969,6 +986,7 @@ function GanttPlanner({
                 >🖨️ Print</button>
                 <button onClick={() => setShowPrintPreview(false)} className="px-4 py-2 border rounded hover:bg-slate-100 text-sm">Close</button>
               </div>
+              <p className="text-xs text-amber-600 mt-2">💡 Tip: In the print dialog, enable "Background graphics" (under "More settings") to show task colors</p>
             </div>
             
             <div id="print-area" className="bg-white">
@@ -999,7 +1017,31 @@ function GanttPlanner({
                               const dayOffsetInWeek = task.startDay - weekStartDay
                               const durationWeeks = task.durationDays / DAYS_PER_WEEK
                               return (
-                                <div key={task.id} className="task-bar px-1" style={{ backgroundColor: task.color, color: '#ffffff', position: 'absolute', left: `calc(${dayOffsetInWeek * 20}% + 2px)`, top: '4px', bottom: '4px', width: `calc(${durationWeeks * 100}% - 4px)`, zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', fontSize: '9px', borderRadius: '3px', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>{task.name}</div>
+                                <div key={task.id} style={{ 
+                                  backgroundColor: task.color, 
+                                  border: `2px solid ${task.color}`,
+                                  color: '#ffffff', 
+                                  position: 'absolute', 
+                                  left: `calc(${dayOffsetInWeek * 20}% + 2px)`, 
+                                  top: '4px', 
+                                  bottom: '4px', 
+                                  width: `calc(${durationWeeks * 100}% - 4px)`, 
+                                  zIndex: 1, 
+                                  display: 'flex', 
+                                  alignItems: 'center', 
+                                  justifyContent: 'center', 
+                                  textAlign: 'center', 
+                                  overflow: 'visible', 
+                                  whiteSpace: 'nowrap', 
+                                  fontSize: '9px', 
+                                  borderRadius: '3px',
+                                  WebkitPrintColorAdjust: 'exact',
+                                  printColorAdjust: 'exact',
+                                  colorAdjust: 'exact'
+                                }}>
+                                  <span style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>{task.name}</span>
+                                  {task.isMilestone && <span style={{marginLeft: '2px'}}>⭐</span>}
+                                </div>
                               )
                             })}
                             {continuingTasks.length > 0 && tasksInCell.length === 0 && <div className="w-full h-6 bg-slate-200 rounded opacity-30" />}
@@ -1068,11 +1110,11 @@ function GanttPlanner({
       <div className="mt-3 bg-white rounded-lg shadow p-3 text-xs text-slate-600">
         <h3 className="font-bold text-slate-800 mb-2">How to use:</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-1">
-          <div>• <strong>Drag tasks</strong> to move them (snaps to days M-F)</div>
+          <div>• <strong>Drag tasks</strong> to move them horizontally or to different categories</div>
           <div>• <strong>Drag edges</strong> to resize duration</div>
           <div>• <strong>Click task</strong> to select → add link, edit, or delete</div>
           <div>• <strong>Red arrows</strong> show dependencies (click to delete)</div>
-          <div>• <strong>Drag categories</strong> using the handle to reorder</div>
+          <div>• <strong>Drag categories</strong> using the handle to reorder rows</div>
           <div>• <strong>Unscheduled tasks</strong> can be dragged onto timeline</div>
           <div>• <strong>⭐ Milestones</strong> mark key deliverables (set when adding/editing task)</div>
         </div>
