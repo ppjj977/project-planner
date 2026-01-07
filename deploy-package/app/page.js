@@ -229,7 +229,7 @@ function GanttPlanner({
   const [editingCategory, setEditingCategory] = useState(null)
   const [showTaskModal, setShowTaskModal] = useState(false)
   const [editingTaskId, setEditingTaskId] = useState(null)
-  const [taskForm, setTaskForm] = useState({ name: '', categoryId: '', startDay: 0, durationDays: 5, assignee: '', isMilestone: false })
+  const [taskForm, setTaskForm] = useState({ name: '', categoryId: '', startDate: '', endDate: '', assignee: '', isMilestone: false })
   const [gridDimensions, setGridDimensions] = useState({ width: 0, left: 0 })
   const [showAssigneeModal, setShowAssigneeModal] = useState(false)
   const [newAssigneeName, setNewAssigneeName] = useState('')
@@ -393,15 +393,38 @@ function GanttPlanner({
     if (!taskForm.assignee) { alert('Please select an assignee (add one first if none exist)'); return }
     
     const assigneeData = assignees.find(a => a.name === taskForm.assignee)
-    const isUnscheduled = taskForm.startDay === null || taskForm.startDay === undefined || taskForm.startDay === 'unscheduled'
+    const isUnscheduled = !taskForm.startDate
+    
+    // Calculate startDay and durationDays from dates
+    let startDay = null
+    let durationDays = 5
+    
+    if (!isUnscheduled && taskForm.startDate) {
+      const taskStartDate = new Date(taskForm.startDate)
+      const plannerStart = new Date(startDate)
+      // Calculate days from planner start (excluding weekends would be complex, so we use calendar days converted to work days)
+      const diffTime = taskStartDate - plannerStart
+      const diffCalendarDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
+      // Convert calendar days to work days (approximate: every 7 calendar days = 5 work days)
+      const fullWeeks = Math.floor(diffCalendarDays / 7)
+      const remainingDays = diffCalendarDays % 7
+      startDay = Math.max(0, fullWeeks * 5 + Math.min(remainingDays, 5))
+      
+      if (taskForm.endDate) {
+        const taskEndDate = new Date(taskForm.endDate)
+        const durationCalendarDays = Math.floor((taskEndDate - taskStartDate) / (1000 * 60 * 60 * 24)) + 1
+        // Convert to work days (roughly)
+        durationDays = Math.max(1, Math.ceil(durationCalendarDays * 5 / 7))
+      }
+    }
     
     if (editingTaskId) {
       setTasks(prev => prev.map(t => t.id === editingTaskId ? {
         ...t,
         name: taskForm.name,
         categoryId: taskForm.categoryId,
-        startDay: isUnscheduled ? null : parseInt(taskForm.startDay),
-        durationDays: parseInt(taskForm.durationDays),
+        startDay: isUnscheduled ? null : startDay,
+        durationDays: durationDays,
         assignee: taskForm.assignee,
         color: assigneeData?.color || '#666',
         isMilestone: taskForm.isMilestone
@@ -411,8 +434,8 @@ function GanttPlanner({
         id: `task-${Date.now()}`,
         name: taskForm.name,
         categoryId: taskForm.categoryId,
-        startDay: isUnscheduled ? null : parseInt(taskForm.startDay),
-        durationDays: parseInt(taskForm.durationDays),
+        startDay: isUnscheduled ? null : startDay,
+        durationDays: durationDays,
         assignee: taskForm.assignee,
         color: assigneeData?.color || '#666',
         isMilestone: taskForm.isMilestone
@@ -420,7 +443,7 @@ function GanttPlanner({
     }
     setShowTaskModal(false)
     setEditingTaskId(null)
-    setTaskForm({ name: '', categoryId: '', startDay: 0, durationDays: 5, assignee: '', isMilestone: false })
+    setTaskForm({ name: '', categoryId: '', startDate: '', endDate: '', assignee: '', isMilestone: false })
   }
 
   const deleteTask = (taskId) => {
@@ -721,7 +744,28 @@ function GanttPlanner({
               {task?.startDay !== null && (
                 <button onClick={() => { setCreatingDependency(selectedTask); setSelectedTask(null) }} className="bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700 text-xs font-medium">🔗 Add Link</button>
               )}
-              <button onClick={() => { const t = tasks.find(x => x.id === selectedTask); if (t) { setTaskForm({ name: t.name, categoryId: t.categoryId, startDay: t.startDay ?? 'unscheduled', durationDays: t.durationDays, assignee: t.assignee, isMilestone: t.isMilestone || false }); setEditingTaskId(selectedTask); setShowTaskModal(true); setSelectedTask(null) } }} className="bg-amber-600 text-white px-3 py-2 rounded hover:bg-amber-700 text-xs font-medium">✏️ Edit</button>
+              <button onClick={() => { 
+                const t = tasks.find(x => x.id === selectedTask); 
+                if (t) { 
+                  // Convert startDay/durationDays back to dates
+                  let startDateStr = ''
+                  let endDateStr = ''
+                  if (t.startDay !== null && t.startDay !== undefined) {
+                    const weekIndex = Math.floor(t.startDay / DAYS_PER_WEEK)
+                    const dayInWeek = t.startDay % DAYS_PER_WEEK
+                    const taskStart = new Date(startDate)
+                    taskStart.setDate(taskStart.getDate() + weekIndex * 7 + dayInWeek)
+                    startDateStr = taskStart.toISOString().split('T')[0]
+                    const taskEnd = new Date(taskStart)
+                    taskEnd.setDate(taskEnd.getDate() + Math.ceil(t.durationDays * 7 / 5) - 1)
+                    endDateStr = taskEnd.toISOString().split('T')[0]
+                  }
+                  setTaskForm({ name: t.name, categoryId: t.categoryId, startDate: startDateStr, endDate: endDateStr, assignee: t.assignee, isMilestone: t.isMilestone || false }); 
+                  setEditingTaskId(selectedTask); 
+                  setShowTaskModal(true); 
+                  setSelectedTask(null) 
+                } 
+              }} className="bg-amber-600 text-white px-3 py-2 rounded hover:bg-amber-700 text-xs font-medium">✏️ Edit</button>
               {task?.startDay !== null && (
                 <button onClick={() => { setTasks(prev => prev.map(t => t.id === selectedTask ? { ...t, startDay: null } : t)); setSelectedTask(null) }} className="bg-slate-600 text-white px-3 py-2 rounded hover:bg-slate-700 text-xs font-medium">📤 Unschedule</button>
               )}
@@ -756,12 +800,16 @@ function GanttPlanner({
                 {assignees.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
               </select>
               <div className="flex gap-2">
-                <select value={taskForm.startDay === null || taskForm.startDay === 'unscheduled' ? 'unscheduled' : Math.floor(taskForm.startDay / DAYS_PER_WEEK)} onChange={(e) => { if (e.target.value === 'unscheduled') { setTaskForm({ ...taskForm, startDay: 'unscheduled' }) } else { setTaskForm({ ...taskForm, startDay: parseInt(e.target.value) * DAYS_PER_WEEK }) } }} className="flex-1 border rounded px-2 py-2 text-sm">
-                  <option value="unscheduled">Not scheduled</option>
-                  {weeks.map((date, idx) => <option key={idx} value={idx}>Week {formatWeekHeader(date)}</option>)}
-                </select>
-                <input type="number" value={taskForm.durationDays} onChange={(e) => setTaskForm({ ...taskForm, durationDays: parseInt(e.target.value) || 1 })} className="w-20 border rounded px-2 py-2 text-sm" min="1" placeholder="Days" />
+                <div className="flex-1">
+                  <label className="block text-xs text-slate-600 mb-1">Start Date</label>
+                  <input type="date" value={taskForm.startDate} onChange={(e) => setTaskForm({ ...taskForm, startDate: e.target.value })} className="w-full border rounded px-2 py-2 text-sm" />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs text-slate-600 mb-1">End Date</label>
+                  <input type="date" value={taskForm.endDate} onChange={(e) => setTaskForm({ ...taskForm, endDate: e.target.value })} className="w-full border rounded px-2 py-2 text-sm" min={taskForm.startDate} />
+                </div>
               </div>
+              <p className="text-xs text-slate-500">Leave dates empty to add as unscheduled</p>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={taskForm.isMilestone} onChange={(e) => setTaskForm({ ...taskForm, isMilestone: e.target.checked })} className="w-4 h-4 rounded border-slate-300" />
                 <span className="text-sm">⭐ Mark as Milestone</span>
