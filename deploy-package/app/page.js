@@ -987,13 +987,13 @@ function GanttPlanner({
               <h1 style={{fontSize: '20px', fontWeight: 'bold', marginBottom: '16px', textAlign: 'center'}}>Project Plan</h1>
               <p style={{fontSize: '12px', color: '#64748b', marginBottom: '16px', textAlign: 'center'}}>Start: {startDate.toLocaleDateString()} | {numWeeks} weeks</p>
               
-              {/* Simple Gantt - each row shows tasks with colored backgrounds */}
+              {/* Gantt Chart - shows task bars spanning across weeks */}
               <table style={{width: '100%', borderCollapse: 'collapse', fontSize: '11px', tableLayout: 'fixed'}}>
                 <thead>
                   <tr>
-                    <th style={{width: '100px', backgroundColor: '#374151', color: 'white', border: '1px solid #ccc', padding: '6px'}}>Category</th>
+                    <th style={{width: '90px', backgroundColor: '#374151', color: 'white', border: '1px solid #ccc', padding: '6px'}}>Category</th>
                     {weeks.map((date, idx) => (
-                      <th key={idx} style={{backgroundColor: '#374151', color: 'white', border: '1px solid #ccc', padding: '4px', textAlign: 'center', fontSize: '10px'}}>{formatWeekHeader(date)}</th>
+                      <th key={idx} style={{backgroundColor: '#374151', color: 'white', border: '1px solid #ccc', padding: '4px', textAlign: 'center', fontSize: '9px'}}>{formatWeekHeader(date)}</th>
                     ))}
                   </tr>
                 </thead>
@@ -1002,45 +1002,49 @@ function GanttPlanner({
                     const categoryTasks = tasks.filter(t => t.categoryId === category.id && t.startDay !== null && t.startDay !== undefined)
                     return (
                       <tr key={category.id}>
-                        <td style={{border: '1px solid #ccc', padding: '6px', fontWeight: '500', backgroundColor: '#f8fafc'}}>{category.name}</td>
+                        <td style={{border: '1px solid #ccc', padding: '6px', fontWeight: '500', backgroundColor: '#f8fafc', fontSize: '10px'}}>{category.name}</td>
                         {weeks.map((_, weekIdx) => {
                           const weekStartDay = weekIdx * DAYS_PER_WEEK
                           const weekEndDay = weekStartDay + DAYS_PER_WEEK
-                          // Tasks that START in this week
-                          const startsHere = categoryTasks.filter(t => t.startDay >= weekStartDay && t.startDay < weekEndDay)
-                          // Tasks that CONTINUE through this week (started earlier, still running)
-                          const continuesHere = categoryTasks.filter(t => t.startDay < weekStartDay && (t.startDay + t.durationDays) > weekStartDay)
+                          
+                          // Find tasks that are active during this week
+                          const activeTasks = categoryTasks.filter(t => {
+                            const taskEnd = t.startDay + t.durationDays
+                            return t.startDay < weekEndDay && taskEnd > weekStartDay
+                          })
                           
                           return (
-                            <td key={weekIdx} style={{border: '1px solid #ccc', padding: '2px', verticalAlign: 'top', height: '40px'}}>
-                              {startsHere.map(task => (
-                                <div key={task.id} style={{
-                                  backgroundColor: task.color,
-                                  color: 'white',
-                                  padding: '2px 4px',
-                                  borderRadius: '3px',
-                                  fontSize: '8px',
-                                  marginBottom: '2px',
-                                  whiteSpace: 'nowrap',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis'
-                                }}>
-                                  {task.isMilestone && '⭐ '}{task.name}
-                                </div>
-                              ))}
-                              {continuesHere.map(task => (
-                                <div key={task.id} style={{
-                                  backgroundColor: task.color,
-                                  opacity: 0.5,
-                                  color: 'white',
-                                  padding: '2px 4px',
-                                  borderRadius: '3px',
-                                  fontSize: '8px',
-                                  marginBottom: '2px'
-                                }}>
-                                  ↳
-                                </div>
-                              ))}
+                            <td key={weekIdx} style={{border: '1px solid #ccc', padding: '1px', verticalAlign: 'middle', height: '35px'}}>
+                              {activeTasks.map(task => {
+                                const isStart = task.startDay >= weekStartDay && task.startDay < weekEndDay
+                                const taskEnd = task.startDay + task.durationDays
+                                const isEnd = taskEnd > weekStartDay && taskEnd <= weekEndDay
+                                
+                                return (
+                                  <div key={task.id} style={{
+                                    backgroundColor: task.color,
+                                    color: 'white',
+                                    padding: '3px 4px',
+                                    fontSize: '7px',
+                                    marginBottom: '1px',
+                                    borderRadius: isStart ? '3px 0 0 3px' : isEnd ? '0 3px 3px 0' : '0',
+                                    marginLeft: isStart ? '2px' : '0',
+                                    marginRight: isEnd ? '2px' : '0',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    minHeight: '16px',
+                                    display: 'flex',
+                                    alignItems: 'center'
+                                  }}>
+                                    {isStart ? (
+                                      <span>{task.isMilestone && '⭐'}{task.name}</span>
+                                    ) : (
+                                      <span style={{opacity: 0.7}}>→</span>
+                                    )}
+                                  </div>
+                                )
+                              })}
                             </td>
                           )
                         })}
