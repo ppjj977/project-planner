@@ -22,6 +22,7 @@ function ProjectList({ onSelect, onNew, currentId, refreshRef }) {
     setLoading(false)
   }, [search, tagFilter])
 
+  
   useEffect(() => {
     loadProjects()
     api.getTagKeys().then(r => r.success && setTagKeys(r.keys))
