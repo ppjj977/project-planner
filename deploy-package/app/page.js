@@ -952,14 +952,21 @@ function GanttPlanner({
                 const file = e.target.files[0]
                 if (!file) return
                 const reader = new FileReader()
+                reader.onerror = () => {
+                  console.error('FileReader error:', reader.error)
+                  alert('Error reading file: ' + reader.error?.message)
+                }
                 reader.onload = (event) => {
                   try {
+                    console.log('Step 1: File loaded, size:', event.target.result.length)
                     let text = event.target.result
                     // Remove BOM if present
                     if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1)
                     // Normalize line endings (handle \r\n and \r)
                     text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
                     const lines = text.split('\n').filter(l => l.trim())
+                    console.log('Step 2: Lines parsed:', lines.length)
+                    
                     const parseCSVLine = (line) => {
                       const values = []; let current = ''; let inQuotes = false
                       for (let i = 0; i < line.length; i++) {
@@ -982,8 +989,6 @@ function GanttPlanner({
                         const day = parseInt(parts[0], 10)
                         const month = parseInt(parts[1], 10)
                         const year = parseInt(parts[2], 10)
-                        // If day > 12, it's definitely DD/MM/YYYY
-                        // Otherwise assume DD/MM/YYYY for consistency
                         return new Date(year, month - 1, day)
                       }
                       // Try YYYY-MM-DD (ISO format)
@@ -996,6 +1001,8 @@ function GanttPlanner({
                     }
                     
                     const headers = parseCSVLine(lines[0])
+                    console.log('Step 3: Headers:', headers)
+                    
                     // Create case-insensitive header lookup
                     const getCol = (row, ...names) => {
                       for (const name of names) {
@@ -1013,6 +1020,7 @@ function GanttPlanner({
                       return
                     }
                     
+                    console.log('Step 4: Starting row processing')
                     for (let i = 1; i < lines.length; i++) {
                       try {
                         const values = parseCSVLine(lines[i])
@@ -1056,12 +1064,19 @@ function GanttPlanner({
                       }
                     }
                     
+                    console.log('Step 5: Processed tasks:', importedTasks.length)
+                    
                     if (importedTasks.length === 0) {
                       alert('No tasks could be imported. Check that your CSV has the required columns: Category, Task Name, Assigned To')
                       return
                     }
                     
-                    setCategories(newCats); setAssignees(newAssignees); setTasks(prev => [...prev, ...importedTasks]); setShowImportModal(false)
+                    console.log('Step 6: Updating state')
+                    setCategories(newCats)
+                    setAssignees(newAssignees)
+                    setTasks(prev => [...prev, ...importedTasks])
+                    setShowImportModal(false)
+                    console.log('Step 7: Done!')
                     alert(`Imported ${importedTasks.length} tasks`)
                   } catch (err) { 
                     console.error('CSV Parse Error:', err)
