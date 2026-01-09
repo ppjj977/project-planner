@@ -945,7 +945,8 @@ function GanttPlanner({
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-4 w-full max-w-sm">
             <h2 className="text-lg font-bold mb-3">Import Tasks from CSV</h2>
-            <p className="text-xs text-slate-600 mb-3">CSV format: Category, Task Name, Assigned To, Start, Finish</p>
+            <p className="text-xs text-slate-600 mb-2">Required columns: Category, Task Name, Assigned To</p>
+            <p className="text-xs text-slate-600 mb-3">Optional: Start, Finish (dates in DD/MM/YYYY or YYYY-MM-DD)</p>
             <div className="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center">
               <input type="file" accept=".csv" onChange={(e) => {
                 const file = e.target.files[0]
@@ -966,44 +967,83 @@ function GanttPlanner({
                       values.push(current.trim())
                       return values
                     }
+                    
+                    // Parse date in various formats (DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD)
+                    const parseDate = (dateStr) => {
+                      if (!dateStr || !dateStr.trim()) return null
+                      dateStr = dateStr.trim()
+                      // Try DD/MM/YYYY format first (common in UK/EU)
+                      if (dateStr.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) {
+                        const parts = dateStr.split('/')
+                        const day = parseInt(parts[0], 10)
+                        const month = parseInt(parts[1], 10)
+                        const year = parseInt(parts[2], 10)
+                        // If day > 12, it's definitely DD/MM/YYYY
+                        // Otherwise assume DD/MM/YYYY for consistency
+                        return new Date(year, month - 1, day)
+                      }
+                      // Try YYYY-MM-DD (ISO format)
+                      if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                        return new Date(dateStr + 'T00:00:00')
+                      }
+                      // Fallback to native parsing
+                      const d = new Date(dateStr)
+                      return isNaN(d.getTime()) ? null : d
+                    }
+                    
                     const headers = parseCSVLine(lines[0])
+                    // Create case-insensitive header lookup
+                    const getCol = (row, ...names) => {
+                      for (const name of names) {
+                        const key = headers.find(h => h.toLowerCase() === name.toLowerCase())
+                        if (key && row[key]) return row[key]
+                      }
+                      return ''
+                    }
+                    
                     const newCats = [...categories], newAssignees = [...assignees], importedTasks = []
                     const catNames = new Set(categories.map(c => c.name))
                     for (let i = 1; i < lines.length; i++) {
                       const values = parseCSVLine(lines[i])
+                      if (values.length === 0 || values.every(v => !v)) continue // Skip empty rows
                       const row = {}; headers.forEach((h, idx) => row[h] = values[idx] || '')
-                      const catName = row['Category'] || 'Imported'
+                      
+                      const catName = getCol(row, 'Category') || 'Imported'
                       if (!catNames.has(catName)) { catNames.add(catName); newCats.push({ id: `cat-${Date.now()}-${i}`, name: catName }) }
                       const cat = newCats.find(c => c.name === catName)
-                      const assignee = row['Assigned To'] || row['Assignee'] || 'Unassigned'
+                      
+                      const assignee = getCol(row, 'Assigned To', 'Assigned to', 'Assignee') || 'Unassigned'
                       let assigneeData = newAssignees.find(a => a.name === assignee)
                       if (!assigneeData) { assigneeData = { name: assignee, color: '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0') }; newAssignees.push(assigneeData) }
-                      const startStr = row['Start'] || row['Start Date'] || ''
+                      
+                      const startStr = getCol(row, 'Start', 'Start Date')
                       let actualStartDate = null, durationDays = 5
-                      if (startStr) {
-                        // Store the actual date string (normalize to ISO format)
-                        const taskStart = new Date(startStr)
+                      const taskStart = parseDate(startStr)
+                      if (taskStart) {
                         actualStartDate = taskStart.toISOString().split('T')[0]
                         
-                        const endStr = row['Finish'] || row['End Date'] || ''
-                        if (endStr) {
-                          const taskEnd = new Date(endStr)
+                        const endStr = getCol(row, 'Finish', 'End Date', 'End')
+                        const taskEnd = parseDate(endStr)
+                        if (taskEnd) {
                           durationDays = Math.max(1, Math.round((taskEnd - taskStart) / 86400000) + 1)
                         }
                       }
+                      
+                      const taskName = getCol(row, 'Task Name', 'Task', 'Name') || 'Untitled'
                       importedTasks.push({ 
                         id: `task-${Date.now()}-${i}`, 
-                        name: row['Task Name'] || row['Task'] || 'Untitled', 
+                        name: taskName, 
                         categoryId: cat.id, 
                         actualStartDate, 
-                        startDay: null, // Will be calculated dynamically
+                        startDay: null,
                         durationDays, 
                         assignee, 
                         color: assigneeData.color 
                       })
                     }
                     setCategories(newCats); setAssignees(newAssignees); setTasks(prev => [...prev, ...importedTasks]); setShowImportModal(false)
-                  } catch (err) { alert('Error parsing CSV') }
+                    alert(`Imported ${importedTasks.length} tasks`)
+                  } catch (err) { console.error(err); alert('Error parsing CSV: ' + err.message) }
                 }
                 reader.readAsText(file)
               }} className="hidden" id="csv-upload" />
