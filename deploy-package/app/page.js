@@ -278,24 +278,76 @@ function GanttPlanner({
     return `${day}/${month}`
   }
 
+  // Convert an actual date to a visual startDay position on the scheduler
+  const dateToStartDay = (dateStr) => {
+    if (!dateStr) return null
+    const taskDate = new Date(dateStr)
+    const plannerStart = new Date(startDate)
+    plannerStart.setHours(0, 0, 0, 0)
+    taskDate.setHours(0, 0, 0, 0)
+    
+    const diffTime = taskDate - plannerStart
+    const diffCalendarDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
+    
+    // Convert calendar days to work days (5 work days per 7 calendar days)
+    const fullWeeks = Math.floor(diffCalendarDays / 7)
+    const remainingDays = diffCalendarDays % 7
+    // Handle negative values for tasks before scheduler start
+    if (diffCalendarDays < 0) {
+      const negWeeks = Math.ceil(Math.abs(diffCalendarDays) / 7)
+      const negRemaining = Math.abs(diffCalendarDays) % 7
+      return -(negWeeks * 5 + Math.min(negRemaining, 5))
+    }
+    return fullWeeks * 5 + Math.min(remainingDays, 5)
+  }
+
+  // Convert a visual startDay position back to an actual date
+  const startDayToDate = (day) => {
+    if (day === null || day === undefined) return null
+    const plannerStart = new Date(startDate)
+    plannerStart.setHours(0, 0, 0, 0)
+    
+    // Convert work days to calendar days
+    const fullWeeks = Math.floor(day / 5)
+    const remainingWorkDays = day % 5
+    const calendarDays = fullWeeks * 7 + remainingWorkDays
+    
+    const resultDate = new Date(plannerStart)
+    resultDate.setDate(resultDate.getDate() + calendarDays)
+    return resultDate.toISOString().split('T')[0]
+  }
+
+  // Get the visual startDay for rendering (calculates from actualStartDate if available)
+  const getVisualStartDay = (task) => {
+    if (task.actualStartDate) {
+      return dateToStartDay(task.actualStartDate)
+    }
+    return task.startDay
+  }
+
   const getTaskStyle = (task) => {
+    const visualStartDay = getVisualStartDay(task)
+    if (visualStartDay === null) return { display: 'none' }
     const dayWidth = 100 / totalDays
-    return { left: `${task.startDay * dayWidth}%`, width: `calc(${task.durationDays * dayWidth}% - 8px)` }
+    return { left: `${visualStartDay * dayWidth}%`, width: `calc(${task.durationDays * dayWidth}% - 8px)` }
   }
 
   const getClientX = (e) => e.touches?.[0]?.clientX ?? e.clientX
 
   const getMinStartDay = (taskId) => {
-    let minStart = 0
+    let minStart = -Infinity // Allow tasks to be positioned before scheduler start
     for (const dep of dependencies) {
       if (dep.toTaskId === taskId) {
         const fromTask = tasks.find(t => t.id === dep.fromTaskId)
-        if (fromTask && fromTask.startDay !== null) {
-          minStart = Math.max(minStart, fromTask.startDay + fromTask.durationDays)
+        if (fromTask) {
+          const fromVisualStart = getVisualStartDay(fromTask)
+          if (fromVisualStart !== null) {
+            minStart = Math.max(minStart, fromVisualStart + fromTask.durationDays)
+          }
         }
       }
     }
-    return minStart
+    return minStart === -Infinity ? 0 : minStart
   }
 
   const cascadeDependencies = (updatedTasks, movedTaskId) => {
@@ -307,11 +359,16 @@ function GanttPlanner({
       for (const dep of dependencies) {
         const fromTask = tasksMap.get(dep.fromTaskId)
         const toTask = tasksMap.get(dep.toTaskId)
-        if (fromTask && toTask && fromTask.startDay !== null && toTask.startDay !== null) {
-          const fromEndDay = fromTask.startDay + fromTask.durationDays
-          if (toTask.startDay < fromEndDay) {
-            tasksMap.set(toTask.id, { ...toTask, startDay: fromEndDay })
-            changed = true
+        if (fromTask && toTask) {
+          const fromVisualStart = fromTask.actualStartDate ? dateToStartDay(fromTask.actualStartDate) : fromTask.startDay
+          const toVisualStart = toTask.actualStartDate ? dateToStartDay(toTask.actualStartDate) : toTask.startDay
+          if (fromVisualStart !== null && toVisualStart !== null) {
+            const fromEndDay = fromVisualStart + fromTask.durationDays
+            if (toVisualStart < fromEndDay) {
+              const newStartDate = startDayToDate(fromEndDay)
+              tasksMap.set(toTask.id, { ...toTask, actualStartDate: newStartDate, startDay: fromEndDay })
+              changed = true
+            }
           }
         }
       }
@@ -322,7 +379,8 @@ function GanttPlanner({
   const handleDragStart = (e, task, mode = 'move') => {
     e.stopPropagation()
     if (e.type === 'touchstart') e.preventDefault()
-    setDragState({ taskId: task.id, mode, startX: getClientX(e), originalStartDay: task.startDay, originalDurationDays: task.durationDays })
+    const visualStartDay = getVisualStartDay(task)
+    setDragState({ taskId: task.id, mode, startX: getClientX(e), originalStartDay: visualStartDay, originalDurationDays: task.durationDays })
     setSelectedTask(null)
     setCreatingDependency(null)
   }
@@ -339,23 +397,26 @@ function GanttPlanner({
         if (task.id !== dragState.taskId) return task
         if (dragState.mode === 'move') {
           const minStart = getMinStartDay(task.id)
-          const newStartDay = Math.max(minStart, Math.min(totalDays - dragState.originalDurationDays, dragState.originalStartDay + dayDelta))
-          return { ...task, startDay: newStartDay }
+          const newStartDay = Math.max(minStart, dragState.originalStartDay + dayDelta)
+          const newActualDate = startDayToDate(newStartDay)
+          return { ...task, startDay: newStartDay, actualStartDate: newActualDate }
         } else if (dragState.mode === 'resize-right') {
-          const newDuration = Math.max(1, Math.min(totalDays - dragState.originalStartDay, dragState.originalDurationDays + dayDelta))
+          const newDuration = Math.max(1, dragState.originalDurationDays + dayDelta)
           return { ...task, durationDays: newDuration }
         } else if (dragState.mode === 'resize-left') {
           const minStart = getMinStartDay(task.id)
           const maxLeftShift = dragState.originalStartDay - minStart
           const maxRightShift = dragState.originalDurationDays - 1
           const clampedDelta = Math.max(-maxLeftShift, Math.min(maxRightShift, dayDelta))
-          return { ...task, startDay: dragState.originalStartDay + clampedDelta, durationDays: dragState.originalDurationDays - clampedDelta }
+          const newStartDay = dragState.originalStartDay + clampedDelta
+          const newActualDate = startDayToDate(newStartDay)
+          return { ...task, startDay: newStartDay, actualStartDate: newActualDate, durationDays: dragState.originalDurationDays - clampedDelta }
         }
         return task
       })
       return cascadeDependencies(updatedTasks, dragState.taskId)
     })
-  }, [dragState, gridDimensions.width, totalDays, dependencies])
+  }, [dragState, gridDimensions.width, totalDays, dependencies, startDate])
 
   const handleDragEnd = useCallback(() => setDragState(null), [])
 
@@ -396,22 +457,15 @@ function GanttPlanner({
     const assigneeData = assignees.find(a => a.name === taskForm.assignee)
     const isUnscheduled = !taskForm.startDate
     
-    // Calculate startDay and durationDays from dates
-    let startDay = null
+    // Store actual dates and calculate duration
+    let actualStartDate = null
     let durationDays = 5
     
     if (!isUnscheduled && taskForm.startDate) {
-      const taskStartDate = new Date(taskForm.startDate)
-      const plannerStart = new Date(startDate)
-      // Calculate days from planner start (excluding weekends would be complex, so we use calendar days converted to work days)
-      const diffTime = taskStartDate - plannerStart
-      const diffCalendarDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
-      // Convert calendar days to work days (approximate: every 7 calendar days = 5 work days)
-      const fullWeeks = Math.floor(diffCalendarDays / 7)
-      const remainingDays = diffCalendarDays % 7
-      startDay = Math.max(0, fullWeeks * 5 + Math.min(remainingDays, 5))
+      actualStartDate = taskForm.startDate // Store the actual ISO date string
       
       if (taskForm.endDate) {
+        const taskStartDate = new Date(taskForm.startDate)
         const taskEndDate = new Date(taskForm.endDate)
         const durationCalendarDays = Math.floor((taskEndDate - taskStartDate) / (1000 * 60 * 60 * 24)) + 1
         // Convert to work days (roughly)
@@ -424,7 +478,8 @@ function GanttPlanner({
         ...t,
         name: taskForm.name,
         categoryId: taskForm.categoryId,
-        startDay: isUnscheduled ? null : startDay,
+        actualStartDate: actualStartDate,
+        startDay: actualStartDate ? dateToStartDay(actualStartDate) : null,
         durationDays: durationDays,
         assignee: taskForm.assignee,
         color: assigneeData?.color || '#666',
@@ -435,7 +490,8 @@ function GanttPlanner({
         id: `task-${Date.now()}`,
         name: taskForm.name,
         categoryId: taskForm.categoryId,
-        startDay: isUnscheduled ? null : startDay,
+        actualStartDate: actualStartDate,
+        startDay: actualStartDate ? dateToStartDay(actualStartDate) : null,
         durationDays: durationDays,
         assignee: taskForm.assignee,
         color: assigneeData?.color || '#666',
@@ -477,16 +533,15 @@ function GanttPlanner({
   const exportTaskList = () => {
     const exportRows = tasks.map(task => {
       const category = categories.find(c => c.id === task.categoryId)
-      if (task.startDay === null || task.startDay === undefined) {
+      if (!task.actualStartDate && (task.startDay === null || task.startDay === undefined)) {
         return { Category: category?.name || '', 'Task Name': task.name, 'Assigned To': task.assignee, Start: '', Finish: '' }
       }
-      const weekIndex = Math.floor(task.startDay / DAYS_PER_WEEK)
-      const dayInWeek = task.startDay % DAYS_PER_WEEK
-      const startDateObj = new Date(weeks[weekIndex] || weeks[0])
-      startDateObj.setDate(startDateObj.getDate() + dayInWeek)
+      // Use actualStartDate if available
+      const startDateStr = task.actualStartDate || startDayToDate(task.startDay)
+      const startDateObj = new Date(startDateStr)
       const endDateObj = new Date(startDateObj)
-      endDateObj.setDate(endDateObj.getDate() + task.durationDays - 1)
-      return { Category: category?.name || '', 'Task Name': task.name, 'Assigned To': task.assignee, Start: startDateObj.toISOString().split('T')[0], Finish: endDateObj.toISOString().split('T')[0] }
+      endDateObj.setDate(endDateObj.getDate() + Math.ceil(task.durationDays * 7 / 5) - 1)
+      return { Category: category?.name || '', 'Task Name': task.name, 'Assigned To': task.assignee, Start: startDateStr, Finish: endDateObj.toISOString().split('T')[0] }
     })
     const csv = ['Category,Task Name,Assigned To,Start,Finish', ...exportRows.map(row => `"${row.Category}","${row['Task Name']}","${row['Assigned To']}","${row.Start}","${row.Finish}"`)].join('\n')
     setExportData(csv)
@@ -499,13 +554,16 @@ function GanttPlanner({
     return dependencies.map(dep => {
       const fromTask = tasks.find(t => t.id === dep.fromTaskId)
       const toTask = tasks.find(t => t.id === dep.toTaskId)
-      if (!fromTask || !toTask || fromTask.startDay === null || toTask.startDay === null) return null
+      if (!fromTask || !toTask) return null
+      const fromVisualStart = getVisualStartDay(fromTask)
+      const toVisualStart = getVisualStartDay(toTask)
+      if (fromVisualStart === null || toVisualStart === null) return null
       const fromCatIndex = categories.findIndex(c => c.id === fromTask.categoryId)
       const toCatIndex = categories.findIndex(c => c.id === toTask.categoryId)
       if (fromCatIndex === -1 || toCatIndex === -1) return null
-      const x1 = (fromTask.startDay + fromTask.durationDays) * dayWidth
+      const x1 = (fromVisualStart + fromTask.durationDays) * dayWidth
       const y1 = fromCatIndex * ROW_HEIGHT + ROW_HEIGHT / 2
-      const x2 = toTask.startDay * dayWidth
+      const x2 = toVisualStart * dayWidth
       const y2 = toCatIndex * ROW_HEIGHT + ROW_HEIGHT / 2
       const controlOffset = Math.abs(y2 - y1) * 0.5 + 20
       return (
@@ -518,7 +576,7 @@ function GanttPlanner({
     })
   }
 
-  const unscheduledTasks = tasks.filter(t => t.startDay === null || t.startDay === undefined)
+  const unscheduledTasks = tasks.filter(t => !t.actualStartDate && (t.startDay === null || t.startDay === undefined))
 
   return (
     <div className="select-none">
@@ -683,7 +741,8 @@ function GanttPlanner({
                     const x = e.clientX - rect.left
                     const dayWidth = rect.width / totalDays
                     const dropDay = Math.max(0, Math.min(totalDays - 1, Math.floor(x / dayWidth)))
-                    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, startDay: dropDay, categoryId: category.id } : t))
+                    const newActualDate = startDayToDate(dropDay)
+                    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, startDay: dropDay, actualStartDate: newActualDate, categoryId: category.id } : t))
                   }}
                 >
                   {/* Grid lines */}
@@ -698,7 +757,13 @@ function GanttPlanner({
                   </div>
 
                   {/* Tasks */}
-                  {tasks.filter(t => t.categoryId === category.id && t.startDay !== null && t.startDay !== undefined).map(task => {
+                  {tasks.filter(t => t.categoryId === category.id && (t.actualStartDate || (t.startDay !== null && t.startDay !== undefined))).map(task => {
+                    const visualStartDay = getVisualStartDay(task)
+                    // Check if task is visible in current view
+                    if (visualStartDay === null) return null
+                    const taskEndDay = visualStartDay + task.durationDays
+                    if (taskEndDay < 0 || visualStartDay > totalDays) return null // Task is outside visible range
+                    
                     const style = getTaskStyle(task)
                     const isSelected = selectedTask === task.id
                     const isCreatingFrom = creatingDependency === task.id
@@ -749,24 +814,27 @@ function GanttPlanner({
       {selectedTask && (() => {
         const task = tasks.find(t => t.id === selectedTask)
         const taskDeps = dependencies.filter(d => d.fromTaskId === selectedTask || d.toTaskId === selectedTask)
+        const hasSchedule = task?.actualStartDate || (task?.startDay !== null && task?.startDay !== undefined)
         return (
           <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-white rounded-lg shadow-xl p-3 z-50 border border-slate-200">
             <div className="flex gap-2 flex-wrap justify-center">
-              {task?.startDay !== null && (
+              {hasSchedule && (
                 <button onClick={() => { setCreatingDependency(selectedTask); setSelectedTask(null) }} className="bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700 text-xs font-medium">🔗 Add Link</button>
               )}
               <button onClick={() => { 
                 const t = tasks.find(x => x.id === selectedTask); 
                 if (t) { 
-                  // Convert startDay/durationDays back to dates
-                  let startDateStr = ''
+                  // Use actualStartDate if available, otherwise calculate from startDay
+                  let startDateStr = t.actualStartDate || ''
                   let endDateStr = ''
-                  if (t.startDay !== null && t.startDay !== undefined) {
-                    const weekIndex = Math.floor(t.startDay / DAYS_PER_WEEK)
-                    const dayInWeek = t.startDay % DAYS_PER_WEEK
-                    const taskStart = new Date(startDate)
-                    taskStart.setDate(taskStart.getDate() + weekIndex * 7 + dayInWeek)
-                    startDateStr = taskStart.toISOString().split('T')[0]
+                  if (startDateStr) {
+                    const taskStart = new Date(startDateStr)
+                    const taskEnd = new Date(taskStart)
+                    taskEnd.setDate(taskEnd.getDate() + Math.ceil(t.durationDays * 7 / 5) - 1)
+                    endDateStr = taskEnd.toISOString().split('T')[0]
+                  } else if (t.startDay !== null && t.startDay !== undefined) {
+                    startDateStr = startDayToDate(t.startDay)
+                    const taskStart = new Date(startDateStr)
                     const taskEnd = new Date(taskStart)
                     taskEnd.setDate(taskEnd.getDate() + Math.ceil(t.durationDays * 7 / 5) - 1)
                     endDateStr = taskEnd.toISOString().split('T')[0]
@@ -777,8 +845,8 @@ function GanttPlanner({
                   setSelectedTask(null) 
                 } 
               }} className="bg-amber-600 text-white px-3 py-2 rounded hover:bg-amber-700 text-xs font-medium">✏️ Edit</button>
-              {task?.startDay !== null && (
-                <button onClick={() => { setTasks(prev => prev.map(t => t.id === selectedTask ? { ...t, startDay: null } : t)); setSelectedTask(null) }} className="bg-slate-600 text-white px-3 py-2 rounded hover:bg-slate-700 text-xs font-medium">📤 Unschedule</button>
+              {hasSchedule && (
+                <button onClick={() => { setTasks(prev => prev.map(t => t.id === selectedTask ? { ...t, startDay: null, actualStartDate: null } : t)); setSelectedTask(null) }} className="bg-slate-600 text-white px-3 py-2 rounded hover:bg-slate-700 text-xs font-medium">📤 Unschedule</button>
               )}
               {taskDeps.length > 0 && (
                 <button onClick={() => { setDependencies(prev => prev.filter(d => d.fromTaskId !== selectedTask && d.toTaskId !== selectedTask)); setSelectedTask(null) }} className="bg-orange-600 text-white px-3 py-2 rounded hover:bg-orange-700 text-xs font-medium">✂️ Remove Links</button>
@@ -911,19 +979,28 @@ function GanttPlanner({
                       let assigneeData = newAssignees.find(a => a.name === assignee)
                       if (!assigneeData) { assigneeData = { name: assignee, color: '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0') }; newAssignees.push(assigneeData) }
                       const startStr = row['Start'] || row['Start Date'] || ''
-                      let startDay = null, durationDays = 5
+                      let actualStartDate = null, durationDays = 5
                       if (startStr) {
+                        // Store the actual date string (normalize to ISO format)
                         const taskStart = new Date(startStr)
-                        for (let w = 0; w < weeks.length; w++) {
-                          const weekStart = weeks[w], weekEnd = new Date(weekStart); weekEnd.setDate(weekEnd.getDate() + 4)
-                          if (taskStart >= weekStart && taskStart <= weekEnd) { startDay = w * DAYS_PER_WEEK + Math.min(Math.floor((taskStart - weekStart) / 86400000), 4); break }
-                          else if (taskStart < weekStart) { startDay = w * DAYS_PER_WEEK; break }
-                          startDay = (w + 1) * DAYS_PER_WEEK - 1
-                        }
+                        actualStartDate = taskStart.toISOString().split('T')[0]
+                        
                         const endStr = row['Finish'] || row['End Date'] || ''
-                        if (endStr) durationDays = Math.max(1, Math.round((new Date(endStr) - new Date(startStr)) / 86400000) + 1)
+                        if (endStr) {
+                          const taskEnd = new Date(endStr)
+                          durationDays = Math.max(1, Math.round((taskEnd - taskStart) / 86400000) + 1)
+                        }
                       }
-                      importedTasks.push({ id: `task-${Date.now()}-${i}`, name: row['Task Name'] || row['Task'] || 'Untitled', categoryId: cat.id, startDay, durationDays, assignee, color: assigneeData.color })
+                      importedTasks.push({ 
+                        id: `task-${Date.now()}-${i}`, 
+                        name: row['Task Name'] || row['Task'] || 'Untitled', 
+                        categoryId: cat.id, 
+                        actualStartDate, 
+                        startDay: null, // Will be calculated dynamically
+                        durationDays, 
+                        assignee, 
+                        color: assigneeData.color 
+                      })
                     }
                     setCategories(newCats); setAssignees(newAssignees); setTasks(prev => [...prev, ...importedTasks]); setShowImportModal(false)
                   } catch (err) { alert('Error parsing CSV') }
@@ -1003,7 +1080,7 @@ function GanttPlanner({
                 
                 {/* Category rows with task bars */}
                 {categories.map((category, catIdx) => {
-                  const categoryTasks = tasks.filter(t => t.categoryId === category.id && t.startDay !== null && t.startDay !== undefined)
+                  const categoryTasks = tasks.filter(t => t.categoryId === category.id && (t.actualStartDate || (t.startDay !== null && t.startDay !== undefined)))
                   const rowHeight = Math.max(50, categoryTasks.length * 28 + 8)
                   
                   return (
@@ -1017,7 +1094,13 @@ function GanttPlanner({
                         
                         {/* Task bars - positioned absolutely */}
                         {categoryTasks.map((task, taskIdx) => {
-                          const startPercent = (task.startDay / totalDays) * 100
+                          const visualStartDay = getVisualStartDay(task)
+                          if (visualStartDay === null) return null
+                          const taskEndDay = visualStartDay + task.durationDays
+                          // Skip tasks entirely outside view
+                          if (taskEndDay < 0 || visualStartDay > totalDays) return null
+                          
+                          const startPercent = Math.max(0, (visualStartDay / totalDays) * 100)
                           const widthPercent = (task.durationDays / totalDays) * 100
                           
                           // Adaptive font size based on task name length and bar width
@@ -1079,12 +1162,11 @@ function GanttPlanner({
                     </tr>
                   </thead>
                   <tbody>
-                    {tasks.filter(t => t.startDay !== null && t.startDay !== undefined).map(task => {
+                    {tasks.filter(t => t.actualStartDate || (t.startDay !== null && t.startDay !== undefined)).map(task => {
                       const category = categories.find(c => c.id === task.categoryId)
-                      const weekIndex = Math.floor(task.startDay / DAYS_PER_WEEK)
-                      const dayInWeek = task.startDay % DAYS_PER_WEEK
-                      const taskStartDate = new Date(weeks[weekIndex] || weeks[0])
-                      taskStartDate.setDate(taskStartDate.getDate() + dayInWeek)
+                      // Use actualStartDate if available
+                      const taskStartDateStr = task.actualStartDate || startDayToDate(task.startDay)
+                      const taskStartDate = taskStartDateStr ? new Date(taskStartDateStr) : null
                       return (
                         <tr key={task.id}>
                           <td style={{border: '1px solid #ccc', padding: '6px'}}>{task.isMilestone && '⭐ '}{task.name}</td>
@@ -1101,7 +1183,7 @@ function GanttPlanner({
 
               <div style={{marginTop: '16px', display: 'flex', flexWrap: 'wrap', gap: '16px', fontSize: '11px'}}>
                 <span style={{fontWeight: '500'}}>Legend:</span>
-                {assignees.filter(a => tasks.some(t => t.assignee === a.name && t.startDay !== null && t.startDay !== undefined)).map(a => (
+                {assignees.filter(a => tasks.some(t => t.assignee === a.name && (t.actualStartDate || (t.startDay !== null && t.startDay !== undefined)))).map(a => (
                   <div key={a.name} style={{display: 'flex', alignItems: 'center', gap: '4px'}}>
                     <div style={{width: '12px', height: '12px', borderRadius: '2px', backgroundColor: a.color}} />
                     <span>{a.name}</span>
