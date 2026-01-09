@@ -22,7 +22,6 @@ function ProjectList({ onSelect, onNew, currentId, refreshRef }) {
     setLoading(false)
   }, [search, tagFilter])
 
-  
   useEffect(() => {
     loadProjects()
     api.getTagKeys().then(r => r.success && setTagKeys(r.keys))
@@ -945,13 +944,15 @@ function GanttPlanner({
       {showImportModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-4 w-full max-w-sm">
-            <h2 className="text-lg font-bold mb-3">Import Tasks from CSV</h2>
+            <h2 className="text-lg font-bold mb-3">📥 Import Tasks from CSV (v2)</h2>
             <p className="text-xs text-slate-600 mb-2">Required columns: Category, Task Name, Assigned To</p>
             <p className="text-xs text-slate-600 mb-3">Optional: Start, Finish (dates in DD/MM/YYYY or YYYY-MM-DD)</p>
             <div className="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center">
               <input type="file" accept=".csv" onChange={(e) => {
+                console.log('=== CSV IMPORT v2 STARTED ===')
                 const file = e.target.files[0]
-                if (!file) return
+                if (!file) { console.log('No file selected'); return }
+                console.log('File selected:', file.name, 'Size:', file.size)
                 const reader = new FileReader()
                 reader.onerror = () => {
                   console.error('FileReader error:', reader.error)
@@ -1082,7 +1083,7 @@ function GanttPlanner({
                   } catch (err) { 
                     console.error('CSV Parse Error:', err)
                     console.error('Error stack:', err.stack)
-                    alert('Error parsing CSV: ' + err.message) 
+                    alert('CSV IMPORT FAILED: ' + (err.message || 'Unknown error') + '\n\nCheck browser console (F12) for details.') 
                   }
                 }
                 reader.readAsText(file)
