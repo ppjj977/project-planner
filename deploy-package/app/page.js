@@ -954,7 +954,11 @@ function GanttPlanner({
                 const reader = new FileReader()
                 reader.onload = (event) => {
                   try {
-                    const text = event.target.result
+                    let text = event.target.result
+                    // Remove BOM if present
+                    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1)
+                    // Normalize line endings (handle \r\n and \r)
+                    text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
                     const lines = text.split('\n').filter(l => l.trim())
                     const parseCSVLine = (line) => {
                       const values = []; let current = ''; let inQuotes = false
@@ -1003,47 +1007,67 @@ function GanttPlanner({
                     
                     const newCats = [...categories], newAssignees = [...assignees], importedTasks = []
                     const catNames = new Set(categories.map(c => c.name))
-                    for (let i = 1; i < lines.length; i++) {
-                      const values = parseCSVLine(lines[i])
-                      if (values.length === 0 || values.every(v => !v)) continue // Skip empty rows
-                      const row = {}; headers.forEach((h, idx) => row[h] = values[idx] || '')
-                      
-                      const catName = getCol(row, 'Category') || 'Imported'
-                      if (!catNames.has(catName)) { catNames.add(catName); newCats.push({ id: `cat-${Date.now()}-${i}`, name: catName }) }
-                      const cat = newCats.find(c => c.name === catName)
-                      
-                      const assignee = getCol(row, 'Assigned To', 'Assigned to', 'Assignee') || 'Unassigned'
-                      let assigneeData = newAssignees.find(a => a.name === assignee)
-                      if (!assigneeData) { assigneeData = { name: assignee, color: '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0') }; newAssignees.push(assigneeData) }
-                      
-                      const startStr = getCol(row, 'Start', 'Start Date')
-                      let actualStartDate = null, durationDays = 5
-                      const taskStart = parseDate(startStr)
-                      if (taskStart) {
-                        actualStartDate = taskStart.toISOString().split('T')[0]
-                        
-                        const endStr = getCol(row, 'Finish', 'End Date', 'End')
-                        const taskEnd = parseDate(endStr)
-                        if (taskEnd) {
-                          durationDays = Math.max(1, Math.round((taskEnd - taskStart) / 86400000) + 1)
-                        }
-                      }
-                      
-                      const taskName = getCol(row, 'Task Name', 'Task', 'Name') || 'Untitled'
-                      importedTasks.push({ 
-                        id: `task-${Date.now()}-${i}`, 
-                        name: taskName, 
-                        categoryId: cat.id, 
-                        actualStartDate, 
-                        startDay: null,
-                        durationDays, 
-                        assignee, 
-                        color: assigneeData.color 
-                      })
+                    
+                    if (lines.length < 2) {
+                      alert('CSV file appears empty or has no data rows')
+                      return
                     }
+                    
+                    for (let i = 1; i < lines.length; i++) {
+                      try {
+                        const values = parseCSVLine(lines[i])
+                        if (values.length === 0 || values.every(v => !v)) continue // Skip empty rows
+                        const row = {}; headers.forEach((h, idx) => row[h] = values[idx] || '')
+                        
+                        const catName = getCol(row, 'Category') || 'Imported'
+                        if (!catNames.has(catName)) { catNames.add(catName); newCats.push({ id: `cat-${Date.now()}-${i}`, name: catName }) }
+                        const cat = newCats.find(c => c.name === catName)
+                        
+                        const assignee = getCol(row, 'Assigned To', 'Assigned to', 'Assignee') || 'Unassigned'
+                        let assigneeData = newAssignees.find(a => a.name === assignee)
+                        if (!assigneeData) { assigneeData = { name: assignee, color: '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0') }; newAssignees.push(assigneeData) }
+                        
+                        const startStr = getCol(row, 'Start', 'Start Date')
+                        let actualStartDate = null, durationDays = 5
+                        const taskStart = parseDate(startStr)
+                        if (taskStart && !isNaN(taskStart.getTime())) {
+                          actualStartDate = taskStart.toISOString().split('T')[0]
+                          
+                          const endStr = getCol(row, 'Finish', 'End Date', 'End')
+                          const taskEnd = parseDate(endStr)
+                          if (taskEnd && !isNaN(taskEnd.getTime())) {
+                            durationDays = Math.max(1, Math.round((taskEnd - taskStart) / 86400000) + 1)
+                          }
+                        }
+                        
+                        const taskName = getCol(row, 'Task Name', 'Task', 'Name') || 'Untitled'
+                        importedTasks.push({ 
+                          id: `task-${Date.now()}-${i}`, 
+                          name: taskName, 
+                          categoryId: cat.id, 
+                          actualStartDate, 
+                          startDay: null,
+                          durationDays, 
+                          assignee, 
+                          color: assigneeData.color 
+                        })
+                      } catch (rowErr) {
+                        console.error(`Error on row ${i}:`, rowErr)
+                      }
+                    }
+                    
+                    if (importedTasks.length === 0) {
+                      alert('No tasks could be imported. Check that your CSV has the required columns: Category, Task Name, Assigned To')
+                      return
+                    }
+                    
                     setCategories(newCats); setAssignees(newAssignees); setTasks(prev => [...prev, ...importedTasks]); setShowImportModal(false)
                     alert(`Imported ${importedTasks.length} tasks`)
-                  } catch (err) { console.error(err); alert('Error parsing CSV: ' + err.message) }
+                  } catch (err) { 
+                    console.error('CSV Parse Error:', err)
+                    console.error('Error stack:', err.stack)
+                    alert('Error parsing CSV: ' + err.message) 
+                  }
                 }
                 reader.readAsText(file)
               }} className="hidden" id="csv-upload" />
